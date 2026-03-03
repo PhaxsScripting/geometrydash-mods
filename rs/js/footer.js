@@ -8,6 +8,7 @@ $(document).ready(function () {
 		renderHtmlConfig(jsonData);
 	}
 	// logJSONData();
+	initInGameModPanel();
 })
 function renderHtmlConfig(data = []) {
 	if (!data.length) return;
@@ -132,4 +133,89 @@ function exitHandler() {
 		document.msFullscreenElement === false) {
 		cancelFullScreen();
 	}
+}
+
+function initInGameModPanel() {
+	const iframe = document.querySelector('#iframehtml5');
+	const frameBox = document.querySelector('.frame-box-game');
+	if (!iframe || !frameBox) return;
+	if (!window.location.pathname.includes('geometry-dash')) return;
+
+	const panel = document.createElement('div');
+	panel.className = 'in-game-mod-panel';
+	panel.innerHTML = `
+		<div class="in-game-mod-panel__title">In-Game Mods</div>
+		<label><input type="checkbox" id="gd-mod-noclip"> No Clip</label>
+		<label><input type="checkbox" id="gd-mod-hitboxes"> Show Hitboxes</label>
+		<div class="in-game-mod-panel__speed">
+			<span>Speed Hack</span>
+			<input type="number" id="gd-mod-speed" min="0.1" step="0.1" value="1">
+			<button type="button" id="gd-mod-speed-apply">Apply</button>
+		</div>
+		<button type="button" id="gd-mod-unlock">Unlock All Cosmetics</button>
+		<p id="gd-mod-status" class="in-game-mod-panel__status">Ready</p>
+	`;
+	frameBox.style.position = 'relative';
+	frameBox.appendChild(panel);
+
+	const statusEl = document.getElementById('gd-mod-status');
+	const setStatus = function (message, isError) {
+		statusEl.textContent = message;
+		statusEl.classList.toggle('error', !!isError);
+	};
+
+	const withGameAccess = function (actionName, callback) {
+		try {
+			const gameWindow = iframe.contentWindow;
+			if (!gameWindow) {
+				setStatus(`${actionName}: game window unavailable.`, true);
+				return;
+			}
+			const href = gameWindow.location.href;
+			if (!href) {
+				setStatus(`${actionName}: game URL unavailable.`, true);
+				return;
+			}
+			callback(gameWindow);
+			setStatus(`${actionName}: command sent.`);
+		} catch (error) {
+			setStatus(`${actionName}: blocked by cross-origin iframe.` +
+				` Host game must be same-origin to inject runtime mods.`, true);
+		}
+	};
+
+	const sendModScript = function (gameWindow, script) {
+		if (typeof gameWindow.eval === 'function') {
+			gameWindow.eval(script);
+		}
+		gameWindow.postMessage({ source: 'gd-mod-panel', type: 'run-mod-script', script: script }, '*');
+	};
+
+	document.getElementById('gd-mod-noclip').addEventListener('change', function (event) {
+		const enabled = event.target.checked;
+		withGameAccess('No Clip', function (gameWindow) {
+			sendModScript(gameWindow, `window.__gdMods = window.__gdMods || {}; window.__gdMods.noclip = ${enabled};`);
+		});
+	});
+
+	document.getElementById('gd-mod-hitboxes').addEventListener('change', function (event) {
+		const enabled = event.target.checked;
+		withGameAccess('Show Hitboxes', function (gameWindow) {
+			sendModScript(gameWindow, `window.__gdMods = window.__gdMods || {}; window.__gdMods.showHitboxes = ${enabled};`);
+		});
+	});
+
+	document.getElementById('gd-mod-speed-apply').addEventListener('click', function () {
+		const value = Number(document.getElementById('gd-mod-speed').value || 1);
+		const speed = Math.max(0.1, value);
+		withGameAccess('Speed Hack', function (gameWindow) {
+			sendModScript(gameWindow, `window.__gdMods = window.__gdMods || {}; window.__gdMods.speed = ${speed};\nif (window.createjs && createjs.Ticker) { createjs.Ticker.framerate = 60 * ${speed}; }`);
+		});
+	});
+
+	document.getElementById('gd-mod-unlock').addEventListener('click', function () {
+		withGameAccess('Unlock All Cosmetics', function (gameWindow) {
+			sendModScript(gameWindow, `window.__gdMods = window.__gdMods || {}; window.__gdMods.unlockAllCosmetics = true;\ntry { localStorage.setItem('unlock_all_cosmetics', '1'); } catch (e) {}`);
+		});
+	});
 }
